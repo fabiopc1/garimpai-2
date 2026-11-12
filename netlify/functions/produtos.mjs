@@ -1,7 +1,17 @@
 import { getStore } from '@netlify/blobs';
 export default async ()=>{
   const headers={'content-type':'application/json; charset=utf-8','cache-control':'public, max-age=60, s-maxage=180'};
-  const empty={products:[],sources:[],warnings:[],configured:!!(process.env.AWIN_FEED_URL||process.env.SUPPLIER_FEED_URL),updatedAt:null};
+const empty = {
+  products: [],
+  sources: [],
+  warnings: [],
+  configured: !!(
+    process.env.SHOPEE_APP_ID ||
+    process.env.AWIN_FEED_URL ||
+    process.env.SUPPLIER_FEED_URL
+  ),
+  updatedAt: null
+};
   try{
     const saved=await getStore('garimpai-catalogo').get('atual',{type:'json'});
     if(!saved)return new Response(JSON.stringify({...empty,warnings:empty.configured?['Feed configurado. Aguarde ou execute a sincronizacao em Functions > sincronizar > Run now.']:[]}),{headers});
