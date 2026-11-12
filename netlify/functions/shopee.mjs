@@ -5,64 +5,72 @@ import { pick } from "./logic.mjs";
 const ENDPOINT =
   "https://open-api.affiliate.shopee.com.br/graphql";
 
-// Buscas iniciais - podemos ampliar depois.
-const KEYWORDS = [
-  "organizador cozinha",
-  "utensilios domesticos",
-  "limpeza",
-  "ferramentas",
-  "decoracao"
+// Categorias exibidas pelo Garimpai
+const CATEGORIAS = [
+  {
+    nome: "Limpeza",
+    regex: /\b(saco de lixo|sacos de lixo|lixeira|esponja|vassoura|rodo|limpeza|desinfetante|detergente|pano de chao|pano multiuso|microfibra|escova sanitaria)\b/
+  },
+  {
+    nome: "Lavanderia",
+    regex: /\b(lavanderia|varal|cesto de roupa|pregador de roupa|sabao em po|sabao liquido|amaciante|passadeira)\b/
+  },
+  {
+    nome: "Ferramentas",
+    regex: /\b(furadeira|parafusadeira|broca|brocas|alicate|martelo|lixadeira|esmerilhadeira|chave de fenda|chave philips|chave catraca|soquete|serra circular|trena|nivel laser|ferramentas|jogo de chaves)\b/
+  },
+  {
+    nome: "Pintura",
+    regex: /\b(tinta acrilica|tinta latex|rolo de pintura|pincel de pintura|bandeja de pintura|massa corrida|selador de parede|fita crepe|impermeabilizante|verniz para madeira)\b/
+  },
+  {
+    nome: "Casa inteligente",
+    regex: /\b(camera de seguranca|camera ip|camera wifi|fechadura digital|sensor de presenca|sensor de movimento|tomada inteligente|interruptor inteligente|lampada inteligente|automacao residencial|video porteiro)\b/
+  },
+  {
+    nome: "Potes e cozinha",
+    regex: /\b(pote|potes|marmita|marmitas|panela|frigideira|talher|talheres|escorredor de louca|escorredor de pratos|porta tempero|utensilios de cozinha|porta mantimento|mantimentos|forma de bolo|assadeira|tupperware|organizador de cozinha)\b/
+  },
+  {
+    nome: "Decoração",
+    regex: /\b(almofada|cortina|tapete|quadro decorativo|vaso decorativo|papel de parede|espelho decorativo|luminaria decorativa|pendente decorativo|abajur|decoracao de casa)\b/
+  },
+  {
+    nome: "Utilidades",
+    regex: /\b(organizador|organizadora|organizadores|prateleira|estante|sapateira|cabide|caixa organizadora|cesto organizador|torneira|chuveiro|sifao|ralo|registro hidraulico|filtro de agua|suporte de parede|parafuso|bucha|argamassa|rejunte|cimento|jardim|mangueira de jardim|regador|lampada led|refletor led)\b/
+  }
 ];
 
-// Classificacao com prioridade para termos especificos.
-function categoriaDoProduto(nome) {
-  const t = String(nome).toLowerCase();
+// Produtos fora do posicionamento da loja.
+// A lista tem prioridade sobre as categorias.
+const EXCLUIR =
+  /\b(creatina|whey|suplemento alimentar|pre treino|hipercalorico|vitamina em capsulas|fone de ouvido|headphone|headset|earbuds|airpods|smartphone|iphone|celular|tablet|smartwatch|videogame|console|controle gamer|mouse gamer|teclado gamer|vestido|legging|sutia|calcinha|cueca|camiseta|tenis esportivo|maquina de cortar cabelo|cortador de cabelo|barbeador|maquiagem|batom|perfume|bolsa feminina|relogio de pulso|pecas automotivas|acessorios automotivos|reparo de carros)\b/;
 
-  if (/saco de lixo|lixeira|esponja|detergente|limpeza|desinfetante|pano de chao|microfibra|vassoura|rodo/.test(t)) {
-    return "Limpeza e Descartáveis";
+function normalizarTexto(texto) {
+  return String(texto ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function classificarProduto(nome) {
+  const texto = normalizarTexto(nome);
+
+  if (!texto || EXCLUIR.test(texto)) {
+    return null;
   }
 
-  if (/lavanderia|varal|cesto de roupa|sabao para roupa|pregador|passadeira/.test(t)) {
-    return "Lavanderia";
+  for (const categoria of CATEGORIAS) {
+    if (categoria.regex.test(texto)) {
+      return categoria.nome;
+    }
   }
 
-  if (/furadeira|parafusadeira|broca|serra|alicate|chave de fenda|martelo|lixadeira|esmerilhadeira/.test(t)) {
-    return "Ferramentas";
-  }
-
-  if (/cimento|argamassa|rejunte|tijolo|bloco de concreto|massa corrida|impermeabilizante/.test(t)) {
-    return "Construção e Reforma";
-  }
-
-  if (/torneira|chuveiro|registro|sifao|ralo|ducha|valvula hidraulica/.test(t)) {
-    return "Banheiro e Hidráulica";
-  }
-
-  if (/lampada|luminaria|refletor|fita led|interruptor|tomada|pendente/.test(t)) {
-    return "Iluminação e Elétrica";
-  }
-
-  if (/camera wifi|fechadura digital|sensor inteligente|tomada inteligente|automacao residencial/.test(t)) {
-    return "Casa Inteligente";
-  }
-
-  if (/vaso decorativo|almofada|quadro decorativo|tapete|cortina|decoracao/.test(t)) {
-    return "Decoração";
-  }
-
-  if (/jardim|mangueira|rega|vaso de planta|poda|grama/.test(t)) {
-    return "Jardim e Área Externa";
-  }
-
-  if (/organizador|organizadora|prateleira|estante|sapateira|gaveta|cabide|caixa organizadora/.test(t)) {
-    return "Organização";
-  }
-
-  if (/pote|marmita|panela|talher|escorredor|frigideira|cozinha|copo|prato|garrafa termica/.test(t)) {
-    return "Cozinha e Utensílios";
-  }
-
-  return "Utilidades Domésticas";
+  // Produto sem relacao clara com casa:
+  // nao entra no catalogo.
+  return null;
 }
 
 async function consultarShopee(argumentos, limite = 20) {
@@ -121,8 +129,9 @@ async function consultarShopee(argumentos, limite = 20) {
   const result = await response.json();
 
   if (result.errors?.length) {
-    const error = result.errors[0];
-    const code = error.extensions?.code ?? "desconhecido";
+    const code =
+      result.errors[0]?.extensions?.code ?? "desconhecido";
+
     throw new Error(`Shopee API: ${code}`);
   }
 
@@ -135,83 +144,92 @@ async function consultarShopee(argumentos, limite = 20) {
   return nodes;
 }
 
-function normalizarProdutos(produtos) {
+function filtrarProdutos(produtos) {
   const aprovados = [];
+  let foraDoNicho = 0;
 
   for (const produto of produtos) {
-    const normalized = pick({
+    const categoria = classificarProduto(
+      produto.productName
+    );
+
+    if (!categoria) {
+      foraDoNicho++;
+      continue;
+    }
+
+    const item = pick({
       ...produto,
       id: `shopee-${produto.shopId}-${produto.itemId}`
     }, "Shopee");
 
-    if (!normalized) continue;
+    if (!item) continue;
 
-    normalized.categoria =
-      categoriaDoProduto(produto.productName);
-
-    aprovados.push(normalized);
+    item.categoria = categoria;
+    aprovados.push(item);
   }
 
-  return aprovados;
+  return { aprovados, foraDoNicho };
 }
 
 export async function downloadShopee() {
   const candidates = [];
   const warnings = [];
+
   let received = 0;
   let successfulQueries = 0;
+  let rejectedByNiche = 0;
 
-  // Pesquisa por temas.
-  for (const keyword of KEYWORDS) {
-    try {
-      const argumento =
-        `keyword: ${JSON.stringify(keyword)}, page: 1,`;
+  const keywords = [
+    "organizador cozinha",
+    "limpeza",
+    "ferramentas",
+    "decoracao"
+  ];
 
-      const products = await consultarShopee(argumento, 20);
-
-      received += products.length;
-      successfulQueries++;
-
-      candidates.push(...normalizarProdutos(products));
-
-      console.log(
-        `Shopee ${keyword}: ${products.length} recebidos`
-      );
-    } catch (error) {
-      console.error(
-        `Shopee busca ${keyword}: ${error.message}`
-      );
-
-      warnings.push(
-        `Falha na pesquisa Shopee: ${keyword}`
-      );
+  const consultas = [
+    ...keywords.map(keyword => ({
+      nome: keyword,
+      argumentos:
+        `keyword: ${JSON.stringify(keyword)}, page: 1,`
+    })),
+    {
+      nome: "geral pagina 1",
+      argumentos: "listType: 0, sortType: 1, page: 1,"
+    },
+    {
+      nome: "geral pagina 2",
+      argumentos: "listType: 0, sortType: 1, page: 2,"
     }
-  }
+  ];
 
-  // Busca geral adicional: usa a consulta que ja
-  // funcionou no teste, sem palavra-chave.
-  for (const page of [1, 2]) {
+  for (const consulta of consultas) {
     try {
-      const argumento =
-        `listType: 0, sortType: 1, page: ${page},`;
+      const produtos = await consultarShopee(
+        consulta.argumentos
+      );
 
-      const products = await consultarShopee(argumento, 20);
-
-      received += products.length;
       successfulQueries++;
+      received += produtos.length;
 
-      candidates.push(...normalizarProdutos(products));
+      const filtrados = filtrarProdutos(produtos);
+
+      candidates.push(...filtrados.aprovados);
+      rejectedByNiche += filtrados.foraDoNicho;
 
       console.log(
-        `Shopee geral pagina ${page}: ${products.length} recebidos`
+        `Shopee ${consulta.nome}: ` +
+        `${produtos.length} recebidos, ` +
+        `${filtrados.aprovados.length} elegiveis`
       );
     } catch (error) {
       console.error(
-        `Shopee geral pagina ${page}: ${error.message}`
+        `Shopee ${consulta.nome}:`,
+        error.message
       );
 
       warnings.push(
-        `Falha na busca geral Shopee - pagina ${page}`
+        `Falha na consulta Shopee: ${consulta.nome}`
       );
     }
   }
@@ -220,15 +238,19 @@ export async function downloadShopee() {
     throw new Error("Todas as consultas Shopee falharam");
   }
 
-  // Remove produtos repetidos.
   const unique = [
     ...new Map(
-      candidates.map(product => [product.id, product])
+      candidates.map(produto => [
+        produto.id,
+        produto
+      ])
     ).values()
   ];
 
   console.log(
-    `Shopee: ${received} recebidos; ${unique.length} elegiveis`
+    `Shopee final: ${received} recebidos; ` +
+    `${rejectedByNiche} fora do nicho; ` +
+    `${unique.length} elegiveis`
   );
 
   return {
