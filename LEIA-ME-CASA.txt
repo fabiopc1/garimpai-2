@@ -1,0 +1,32 @@
+GARIMPAÍ — CASA & CONSTRUÇÃO | REDESIGN
+
+O que mudou:
+- Nova identidade: grafite, laranja suave, creme; layout neutro e responsivo.
+- Hero e fotografias em assets/hero-casa.webp, derivados do conceito visual aprovado.
+- Navegação por nove categorias, busca, favoritos locais e calculadora de piso/tinta.
+- Mantidas funções do backend anterior do Garimpaí Obra 3.0.
+- Sem ofertas, descontos ou avaliações inventadas.
+
+ATENÇÃO
+- Não foi feita publicação automática em seu GitHub/Netlify.
+- Shopee Affiliate Open API ainda NÃO está integrada. Aguarde aprovação e avalie os endpoints e permissões antes de implementar (com segredos somente no servidor).
+- As funções existentes para feed Awin e fornecedor seguem presentes; use somente fontes autorizadas.
+- O catálogo ficará vazio enquanto nenhuma fonte autorizada estiver conectada.
+
+PARA PUBLICAR VIA GITHUB + NETLIFY
+1. Faça backup do estado atual do repositório.
+2. Extraia o ZIP; copie TODOS os arquivos na raiz do repositório, preservando as pastas site/ e netlify/.
+3. Faça commit. Se o repositório estiver conectado ao Netlify, o deploy ocorrerá de acordo com as configurações do projeto.
+4. No Netlify, Build settings: publish directory = site, functions directory = netlify/functions (já definidas em netlify.toml).
+5. Teste o endereço e /api/produtos. Não insira chaves de API no navegador ou no GitHub.
+
+TESTES EXISTENTES
+npm install
+npm test
+
+As imagens e textos do visual são protótipos de design; não indicam ofertas específicas.
+
+ATUALIZAÇÃO CASA + DIA A DIA (11/11/2026):
+- Adicionadas categorias Utilidades Domésticas, Cozinha e Potes, Limpeza e Descartáveis, Lavanderia e Organização.
+- Atualizados filtros, menu, texto de capa e mapeamentos de categoria do catálogo.
+- Nenhuma oferta foi criada artificialmente; catálogo segue dependente de fontes autorizadas.
