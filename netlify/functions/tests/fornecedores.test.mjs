@@ -1,0 +1,6 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {validSupplierURL,supplierRows,publicCandidates} from '../netlify/functions/fornecedores.mjs';
+test('somente dominio autorizado',()=>{assert.throws(()=>validSupplierURL('http://example.com/a.csv','example.com'));assert.throws(()=>validSupplierURL('https://local.invalid/a','example.com'));assert.equal(validSupplierURL('https://fornecedor.exemplo.com/c.csv','fornecedor.exemplo.com').hostname,'fornecedor.exemplo.com')});
+const header='sku,nome,custo,frete,estoque,preco_sugerido,dropshipping,imagem,categoria,fornecedor';
+const line=(s,c,f,p,ok='sim')=>[s,'Furadeira com maleta',c,f,15,p,ok,'https://example.com/photo.jpg','Ferramentas','Empresa Teste'].join(',');
+test('recusa margem ruim e produtos sem permissão',()=>{const data=supplierRows([header,line('A',220,40,250),line('B',100,10,280,'não'),line('C',100,10,280)].join('\n'));assert.equal(data.qualified.length,1);assert.equal(data.qualified[0].sku,'C')});
+test('escolhe melhor fornecedor no SKU e nao habilita checkout',()=>{const data=supplierRows([header,line('A',100,10,290),line('A',140,20,290)].join('\n'));assert.equal(data.qualified.length,1);const output=publicCandidates(data.qualified);assert.equal(output[0].link,null);assert.equal(output[0].modo,'homologacao');assert.equal(output[0].custo,undefined)});
