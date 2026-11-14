@@ -57,7 +57,189 @@ let products=[],currentCat='Todos',favoritesOnly=false,favorites=new Set();try{f
 function categoryMatch(p,category){if(category==='Todos')return true;const text=canon(p.categoria||'');return (categories[category]||[canon(category)]).some(x=>text.includes(x))}
 function toast(msg){const el=$('#toast');el.textContent=msg;el.classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.remove('show'),2700)}
 function el(tag,className,content){const node=document.createElement(tag);if(className)node.className=className;if(content!==undefined)node.textContent=String(content);return node}
-function render(){let q=canon($('#search').value.trim());const result=products.filter(p=>categoryMatch(p,currentCat)&&canon(p.nome).includes(q)&&(!favoritesOnly||favorites.has(String(p.id||p.link||p.nome))));const grid=$('#catalogo');grid.replaceChildren();if(!result.length){const empty=el('div','empty');empty.append(el('div','empty-icon',favoritesOnly?'♡':'⌂'),el('h3','',favoritesOnly?'Você ainda não salvou produtos':'Ainda não há ofertas verificadas aqui'),el('p','',favoritesOnly?'Toque no coração dos produtos para guardá-los nesta lista.':'Estamos preparando a integração com fornecedores e a Shopee. Quando houver produtos autorizados, eles aparecerão nesta vitrine automaticamente.'));grid.append(empty);return}for(const p of result){const card=el('article','product');const photo=el('div','product-picture');const image=safeUrl(p.imagem);if(image){const img=el('img');img.src=image;img.alt=String(p.nome||'Produto');img.loading='lazy';img.referrerPolicy='no-referrer';img.onerror=()=>img.replaceWith(el('span','product-placeholder','⌂'));photo.append(img)}else photo.append(el('span','product-placeholder','⌂'));const id=String(p.id||p.link||p.nome);const heart=el('button','favorite'+(favorites.has(id)?' active':''),favorites.has(id)?'♥':'♡');heart.setAttribute('aria-label','Adicionar ou remover dos favoritos');heart.addEventListener('click',()=>{if(favorites.has(id))favorites.delete(id);else favorites.add(id);try{localStorage.setItem('garimpai:favoritos',JSON.stringify([...favorites]))}catch{}render();toast(favorites.has(id)?'Adicionado aos favoritos':'Removido dos favoritos')});photo.append(heart);const body=el('div','product-body');body.append(el('span','small-tag',p.categoria||'Casa & Construção'),el('h3','',p.nome||'Produto'),el('div','source',p.origem||'Parceiro'));if(Number.isFinite(Number(p.preco))&&Number(p.preco)>0)body.append(el('div','price',fmt(p.preco)));const href=safeUrl(p.link);if(href){const a=el('a','product-action','Ver na loja parceira ↗');a.href=href;a.rel='sponsored nofollow noopener noreferrer';a.target='_blank';body.append(a)}else body.append(el('div','product-action','Em homologação'));card.append(photo,body);grid.append(card)}}
+
+function render() {
+  const q = canon($('#search').value.trim());
+
+  const result = products.filter(p =>
+    categoryMatch(p, currentCat) &&
+    canon(p.nome).includes(q) &&
+    (!favoritesOnly ||
+      favorites.has(String(p.id || p.link || p.nome)))
+  );
+
+  const grid = $('#catalogo');
+  grid.replaceChildren();
+
+  if (!result.length) {
+    const empty = el('div', 'empty');
+
+    empty.append(
+      el('div', 'empty-icon', favoritesOnly ? '♡' : '⌂'),
+      el('h3', '',
+        favoritesOnly
+          ? 'Você ainda não salvou produtos'
+          : 'Ainda não há ofertas verificadas aqui'
+      ),
+      el('p', '',
+        favoritesOnly
+          ? 'Toque no coração dos produtos para guardá-los nesta lista.'
+          : 'Estamos preparando novas ofertas para esta categoria.'
+      )
+    );
+
+    grid.append(empty);
+    return;
+  }
+
+  for (const p of result) {
+    const card = el('article', 'product');
+    const photo = el('div', 'product-picture');
+
+    // Imagem do produto
+    const image = safeUrl(p.imagem);
+
+    if (image) {
+      const img = el('img');
+      img.src = image;
+      img.alt = String(p.nome || 'Produto');
+      img.loading = 'lazy';
+      img.referrerPolicy = 'no-referrer';
+      img.onerror = () => {
+        img.replaceWith(
+          el('span', 'product-placeholder', '⌂')
+        );
+      };
+      photo.append(img);
+    } else {
+      photo.append(
+        el('span', 'product-placeholder', '⌂')
+      );
+    }
+
+    // Etiqueta OFF informada pela loja
+    const desconto = Number(p.descontoInformado);
+
+    if (
+      p.descontoInformado !== null &&
+      p.descontoInformado !== undefined &&
+      p.descontoInformado !== '' &&
+      Number.isFinite(desconto) &&
+      desconto >= 1 &&
+      desconto <= 95
+    ) {
+      const badge = el(
+        'span',
+        'discount-badge',
+        `${Math.round(desconto)}% OFF`
+      );
+
+      Object.assign(badge.style, {
+        position: 'absolute',
+        top: '12px',
+        left: '12px',
+        zIndex: '2',
+        background: '#e86b23',
+        color: '#ffffff',
+        padding: '7px 11px',
+        borderRadius: '9px',
+        fontWeight: '800',
+        fontSize: '13px',
+        boxShadow: '0 3px 10px #0002'
+      });
+
+      badge.title =
+        'Desconto informado pela loja parceira';
+
+      photo.append(badge);
+    }
+
+    // Favoritos
+    const id = String(p.id || p.link || p.nome);
+
+    const heart = el(
+      'button',
+      'favorite' + (favorites.has(id) ? ' active' : ''),
+      favorites.has(id) ? '♥' : '♡'
+    );
+
+    heart.setAttribute(
+      'aria-label',
+      'Adicionar ou remover dos favoritos'
+    );
+
+    heart.addEventListener('click', () => {
+      if (favorites.has(id)) {
+        favorites.delete(id);
+      } else {
+        favorites.add(id);
+      }
+
+      try {
+        localStorage.setItem(
+          'garimpai:favoritos',
+          JSON.stringify([...favorites])
+        );
+      } catch {}
+
+      render();
+
+      toast(
+        favorites.has(id)
+          ? 'Adicionado aos favoritos'
+          : 'Removido dos favoritos'
+      );
+    });
+
+    photo.append(heart);
+
+    // Informações do produto
+    const body = el('div', 'product-body');
+
+    body.append(
+      el(
+        'span',
+        'small-tag',
+        p.categoria || 'Casa & Construção'
+      ),
+      el('h3', '', p.nome || 'Produto'),
+      el('div', 'source', p.origem || 'Parceiro')
+    );
+
+    // Preço atual
+    const preco = Number(p.preco);
+
+    if (Number.isFinite(preco) && preco > 0) {
+      body.append(
+        el('div', 'price', fmt(preco))
+      );
+    }
+
+    // Link de afiliado
+    const href = safeUrl(p.link);
+
+    if (href) {
+      const a = el(
+        'a',
+        'product-action',
+        'Ver na loja parceira ↗'
+      );
+
+      a.href = href;
+      a.rel = 'sponsored nofollow noopener noreferrer';
+      a.target = '_blank';
+
+      body.append(a);
+    } else {
+      body.append(
+        el('div', 'product-action', 'Em homologação')
+      );
+    }
+
+    card.append(photo, body);
+    grid.append(card);
+  }
+}
 function setCat(c){favoritesOnly=false;currentCat=c;$$('[data-cat]').forEach(b=>b.classList.toggle('active',b.dataset.cat===c));$$('[data-filter]').forEach(b=>b.classList.toggle('active',b.dataset.filter===c));render();$('#ofertas').scrollIntoView({behavior:'smooth'})}
 $$('[data-cat]').forEach(b=>b.addEventListener('click',()=>setCat(b.dataset.cat)));
 $$('[data-filter]').forEach(b=>b.addEventListener('click',()=>setCat(b.dataset.filter)));
