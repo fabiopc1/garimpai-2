@@ -207,13 +207,44 @@ function render() {
     );
 
     // Preço atual
+    
+    // Precos do produto
     const preco = Number(p.preco);
+    const precoPix = Number(p.precoPix);
 
-    if (Number.isFinite(preco) && preco > 0) {
+    const temPreco = Number.isFinite(preco) && preco > 0;
+
+    const temPixVerificado =
+      p.precoPix !== null &&
+      p.precoPix !== undefined &&
+      p.precoPix !== '' &&
+      p.precoPixVerificado === true &&
+      Number.isFinite(precoPix) &&
+      precoPix > 0 &&
+      temPreco &&
+      precoPix < preco;
+
+    if (temPixVerificado) {
       body.append(
-        el('div', 'price', fmt(preco))
+        el('div', 'price', fmt(precoPix)),
+        el('div', 'small-tag', 'NO PIX COM CUPOM'),
+        el(
+          'div',
+          'source',
+          `Preço informado: ${fmt(preco)} sem cupom`
+        )
+      );
+    } else if (temPreco) {
+      body.append(
+        el('div', 'price', fmt(preco)),
+        el(
+          'div',
+          'source',
+          'Consulte cupons e condições na Shopee'
+        )
       );
     }
+
 
     // Link de afiliado
     const href = safeUrl(p.link);
