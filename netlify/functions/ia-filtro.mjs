@@ -3,7 +3,8 @@ import { getStore } from "@netlify/blobs";
 import { createHash } from "node:crypto";
 
 const MODELO = "gpt-6-luna";
-const MAX_POR_LOTE = 20;
+const VERSAO_REGRAS = "garimpai-v2";
+const LIMITE_LOTE = 10;
 
 const CATEGORIAS = [
   "Utilidades",
@@ -17,33 +18,63 @@ const CATEGORIAS = [
   "Fora do nicho"
 ];
 
-function hashProduto(produto) {
+function hash(texto) {
   return createHash("sha256")
-    .update(JSON.stringify({
-      nome: produto.nome,
-      preco: produto.preco,
-      categoria: produto.categoria
-    }))
+    .update(texto)
     .digest("hex")
-    .slice(0, 24);
+    .slice(0, 32);
 }
 
-function chaveCache(produto) {
-  const id = createHash("sha256")
-    .update(String(produto.id))
-    .digest("hex")
-    .slice(0, 24);
-
-  return `produto-${id}`;
+function normalizar(texto) {
+  return String(texto ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-function respostaSegura(produtos, motivo) {
+// O preco, o desconto, as vendas e a
+// comissao NAO entram na identidade.
+function identidade(produto) {
+  return [
+    produto.origem || "desconhecida",
+    produto.id || "",
+    normalizar(produto.nome)
+  ].join("|");
+}
+
+function chave(produto) {
+  return "classificacao-" + hash(
+    String(produto.origem || "") +
+    "|" +
+    String(produto.id || "")
+  );
+}
+
+function versao(produto) {
+  return hash(
+    VERSAO_REGRAS + "|" + identidade(produto)
+  );
+}
+
+function aplicarClassificacao(produto, decisao) {
+  return {
+    ...produto,
+    categoria: decisao.categoria,
+    curadoriaIA: true,
+    motivoCuradoria: decisao.motivo
+  };
+}
+
+function resultadoBase(produtos, motivo) {
   return {
     produtos: [],
     analisados: 0,
+    cacheHits: 0,
+    pendentes: produtos.length,
     cobrancaRealizada: false,
-    motivo,
-    pendentes: produtos.length
+    motivo
   };
 }
 
@@ -55,122 +86,132 @@ export async function filtrarComIA(
     throw new Error("Lista de produtos invalida");
   }
 
-  // Nunca cobra automaticamente.
-  if (
-    !permitirCobranca ||
-    process.env.GARIMPAI_IA_ENABLED !== "true"
-  ) {
-    return respostaSegura(
+  // A IA permanece BLOQUEADA por padrao.
+  // Exige tres autorizacoes para chamar a API.
+  const autorizado =
+    permitirCobranca === true &&
+    process.env.GARIMPAI_IA_ENABLED === "true" &&
+    process.env.GARIMPAI_IA_MANUAL_TEST === "AUTORIZADO";
+
+  if (!autorizado) {
+    return resultadoBase(
       produtos,
-      "IA desativada: nenhuma chamada paga realizada"
+      "IA bloqueada: nenhuma chamada paga autorizada"
     );
   }
 
   const apiKey = process.env.OPENAI_API_KEY;
 
   if (!apiKey) {
-    return respostaSegura(
+    return resultadoBase(
       produtos,
-      "Chave da IA indisponivel"
+      "Chave OpenAI indisponivel"
     );
   }
 
+  if (produtos.length === 0) {
+    return resultadoBase(produtos, "Sem produtos");
+  }
+
   const store = getStore("garimpai-ia");
-  const lote = produtos.slice(0, MAX_POR_LOTE);
+  const lote = produtos.slice(0, LIMITE_LOTE);
 
   const aprovados = [];
-  const pendentes = [];
+  const desconhecidos = [];
   let cacheHits = 0;
 
+  // Primeiro, procura classificacoes anteriores.
+  // Erros no cache interrompem o processo.
   for (const produto of lote) {
-    const chave = chaveCache(produto);
-    const versao = hashProduto(produto);
+    const salvo = await store.get(
+      chave(produto),
+      { type: "json" }
+    );
 
-    let salvo = null;
-
-    try {
-      salvo = await store.get(chave, {
-        type: "json"
-      });
-    } catch {
-      // Falhas de leitura nao autorizam
-      // cobranca silenciosa.
-      return respostaSegura(
-        produtos,
-        "Falha na leitura do cache"
-      );
-    }
-
-    if (salvo?.versao === versao) {
+    if (
+      salvo &&
+      salvo.versao === versao(produto) &&
+      typeof salvo.aprovado === "boolean" &&
+      CATEGORIAS.includes(salvo.categoria)
+    ) {
       cacheHits++;
 
-      if (salvo.aprovado) {
-        aprovados.push({
-          ...produto,
-          categoria: salvo.categoria
-        });
+      if (
+        salvo.aprovado &&
+        salvo.categoria !== "Fora do nicho"
+      ) {
+        aprovados.push(
+          aplicarClassificacao(produto, salvo)
+        );
       }
     } else {
-      pendentes.push(produto);
+      desconhecidos.push(produto);
     }
   }
 
-  // Tudo foi analisado anteriormente.
-  if (!pendentes.length) {
+  if (!desconhecidos.length) {
     return {
       produtos: aprovados,
       analisados: 0,
       cacheHits,
+      pendentes: produtos.length - lote.length,
       cobrancaRealizada: false,
-      pendentes: produtos.length - lote.length
+      motivo: "Classificacoes recuperadas do cache"
     };
   }
 
-  const entrada = pendentes.map(p => ({
-    id: String(p.id),
-    nome: String(p.nome),
-    preco: p.preco
+  // Um identificador exclusivo por posicao
+  // evita confusao entre lojas e produtos.
+  const entrada = desconhecidos.map((p, i) => ({
+    id: String(i),
+    nome: String(p.nome || "")
   }));
 
   const instrucoes = `
-Voce faz curadoria de produtos para o
-Garimpai Casa e Construcao.
+Voce e responsavel pela curadoria do Garimpai,
+um site brasileiro de casa, construcao e utilidades.
 
-Classifique cada produto pelo titulo.
+Decida se cada produto pertence ao nicho.
+Classifique pela funcao principal do produto,
+nao por palavras secundarias do titulo.
 
-Aceite apenas:
-- utensilios para casa e cozinha
-- limpeza e descartaveis domesticos
-- lavanderia e organizacao
-- ferramentas para reparos e obras
-- materiais para construcao e reforma
-- pintura
-- casa inteligente e seguranca residencial
-- decoracao
-
-Rejeite:
-- suplementos alimentares
-- roupas e acessorios pessoais
-- fones e eletronicos pessoais
-- cosmeticos
-- produtos exclusivamente automotivos
-- qualquer produto fora do nicho
-
-Produtos ambiguos devem ser rejeitados.
-
-Use exatamente uma das categorias:
+Categorias permitidas:
 ${CATEGORIAS.join(", ")}.
 
-Para rejeitados, categoria:
-Fora do nicho.
+Exemplos:
+- Utensilios de silicone de cozinha:
+  Potes e cozinha.
+- Chaleira eletrica:
+  Potes e cozinha.
+- Furadeira e parafusadeira:
+  Ferramentas.
+- Saco de lixo domestico:
+  Limpeza.
+- Varal de roupas:
+  Lavanderia.
+- Lampada inteligente residencial:
+  Casa inteligente.
 
-Responda com todos os IDs recebidos.
-Nao invente dados.
+Rejeite suplementos, roupas, cosmeticos,
+eletronicos pessoais e produtos sem relacao
+clara com o nicho.
+
+Se o titulo for insuficiente ou ambiguo,
+rejeite como Fora do nicho.
+
+O motivo deve ser curto, objetivo e
+fundamentado apenas no nome recebido.
+
+Nao invente preco, avaliacao, qualidade,
+caracteristicas ou especificacoes.
+
+Responda exatamente uma classificacao
+para cada identificador recebido.
 `;
 
   const schema = {
     type: "json_schema",
-    name: "curadoria_garimpai",
+    name: "garimpai_curadoria",
     strict: true,
     schema: {
       type: "object",
@@ -185,12 +226,14 @@ Nao invente dados.
               categoria: {
                 type: "string",
                 enum: CATEGORIAS
-              }
+              },
+              motivo: { type: "string" }
             },
             required: [
               "id",
               "aprovado",
-              "categoria"
+              "categoria",
+              "motivo"
             ],
             additionalProperties: false
           }
@@ -201,8 +244,7 @@ Nao invente dados.
     }
   };
 
-  // Uma chamada para no maximo 20 produtos.
-  const resposta = await fetch(
+  const response = await fetch(
     "https://api.openai.com/v1/responses",
     {
       method: "POST",
@@ -222,16 +264,18 @@ Nao invente dados.
     }
   );
 
-  if (!resposta.ok) {
+  if (!response.ok) {
     throw new Error(
-      `OpenAI HTTP ${resposta.status}`
+      "OpenAI HTTP " + response.status
     );
   }
 
-  const dados = await resposta.json();
+  const dados = await response.json();
 
   if (dados.status !== "completed") {
-    throw new Error("Resposta da IA incompleta");
+    throw new Error(
+      "Classificacao da IA incompleta"
+    );
   }
 
   const texto = (dados.output || [])
@@ -240,73 +284,81 @@ Nao invente dados.
     .map(x => x.text)
     .join("");
 
-  const resultado = JSON.parse(texto);
+  const json = JSON.parse(texto);
+  const resultados = json.resultados;
 
-  if (!Array.isArray(resultado.resultados)) {
-    throw new Error("Formato da IA invalido");
-  }
-
-  const esperado = new Map(
-    pendentes.map(p => [String(p.id), p])
-  );
-
-  const vistos = new Set();
-
-  // Valida todos os resultados antes de salvar.
-  for (const item of resultado.resultados) {
-    if (
-      !esperado.has(item.id) ||
-      vistos.has(item.id) ||
-      !CATEGORIAS.includes(item.categoria) ||
-      typeof item.aprovado !== "boolean"
-    ) {
-      throw new Error("Classificacao inconsistente");
-    }
-
-    vistos.add(item.id);
-  }
-
-  if (vistos.size !== pendentes.length) {
-    throw new Error("Produtos sem classificacao");
-  }
-
-  const gravacoes = [];
-
-  for (const item of resultado.resultados) {
-    const produto = esperado.get(item.id);
-
-    const aprovado =
-      item.aprovado &&
-      item.categoria !== "Fora do nicho";
-
-    const categoria = aprovado
-      ? item.categoria
-      : "Fora do nicho";
-
-    if (aprovado) {
-      aprovados.push({
-        ...produto,
-        categoria
-      });
-    }
-
-    gravacoes.push(
-      store.setJSON(chaveCache(produto), {
-        versao: hashProduto(produto),
-        aprovado,
-        categoria
-      })
+  if (
+    !Array.isArray(resultados) ||
+    resultados.length !== desconhecidos.length
+  ) {
+    throw new Error(
+      "Quantidade de classificacoes invalida"
     );
   }
 
-  await Promise.all(gravacoes);
+  const recebidos = new Map();
+  const idsEsperados = new Set(
+    entrada.map(p => p.id)
+  );
+
+  // Valida toda a resposta antes
+  // de registrar qualquer decisao.
+  for (const item of resultados) {
+    if (
+      !idsEsperados.has(item.id) ||
+      recebidos.has(item.id) ||
+      typeof item.aprovado !== "boolean" ||
+      !CATEGORIAS.includes(item.categoria) ||
+      typeof item.motivo !== "string" ||
+      item.motivo.trim().length === 0 ||
+      (item.aprovado &&
+        item.categoria === "Fora do nicho") ||
+      (!item.aprovado &&
+        item.categoria !== "Fora do nicho")
+    ) {
+      throw new Error(
+        "Resposta inconsistente da IA"
+      );
+    }
+
+    recebidos.set(item.id, item);
+  }
+
+  for (let i = 0; i < desconhecidos.length; i++) {
+    const produto = desconhecidos[i];
+    const item = recebidos.get(String(i));
+
+    if (!item) {
+      throw new Error(
+        "Produto sem classificacao"
+      );
+    }
+
+    const decisao = {
+      versao: versao(produto),
+      aprovado: item.aprovado,
+      categoria: item.categoria,
+      motivo: item.motivo.trim().slice(0, 200),
+      analisadoEm: new Date().toISOString()
+    };
+
+    // Salva tanto aprovados quanto rejeitados.
+    await store.setJSON(chave(produto), decisao);
+
+    if (decisao.aprovado) {
+      aprovados.push(
+        aplicarClassificacao(produto, decisao)
+      );
+    }
+  }
 
   return {
     produtos: aprovados,
-    analisados: pendentes.length,
+    analisados: desconhecidos.length,
     cacheHits,
+    pendentes: produtos.length - lote.length,
     cobrancaRealizada: true,
     tokens: dados.usage?.total_tokens ?? null,
-    pendentes: produtos.length - lote.length
+    motivo: "Classificacao concluida"
   };
 }
